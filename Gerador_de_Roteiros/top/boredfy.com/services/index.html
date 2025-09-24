@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BoredFy AI - Automation</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    />
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- JSZip for creating zip files in the browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="styles.css" />
+
+    <!-- Verificação de autenticação imediata -->
+    <script>
+      // Função para esconder loading e mostrar página
+      function showPage() {
+        const spinner = document.getElementById("loading-spinner");
+        if (spinner) {
+          spinner.style.display = "none";
+        }
+        document.body.style.display = "flex";
+      }
+
+      // Função para redirecionar para login
+      function redirectToLogin() {
+        window.location.href = "login.html";
+      }
+
+      // Verifica se o usuário está logado antes de carregar a página
+      document.addEventListener("DOMContentLoaded", function () {
+        // Esconde a página completamente até verificar autenticação
+        document.body.style.display = "none";
+
+        (async function () {
+          try {
+            // Carrega configurações do Firebase
+            const response = await fetch("/api/firebase-config");
+            if (response.ok) {
+              const data = await response.json();
+              if (data.success && data.config) {
+                // Inicializa Firebase temporariamente para verificar auth
+                if (typeof firebase !== "undefined") {
+                  firebase.initializeApp(data.config);
+                  const auth = firebase.auth();
+
+                  // Verifica estado de autenticação
+                  auth.onAuthStateChanged((user) => {
+                    if (!user) {
+                      console.log("❌ Usuário não logado, redirecionando...");
+                      redirectToLogin();
+                    } else {
+                      console.log("✅ Usuário logado, mostrando página...");
+                      showPage();
+                    }
+                  });
+                }
+              }
+            }
+          } catch (error) {
+            console.error("Erro ao verificar autenticação:", error);
+            // Em caso de erro, redireciona para login
+            redirectToLogin();
+          }
+        })();
+      });
+    </script>
+  </head>
+  <body class="flex h-screen overflow-hidden">
+    <!-- Loading Spinner -->
+    <div
+      id="loading-spinner"
+      class="fixed inset-0 bg-gray-900 flex items-center justify-center z-50"
+    >
+      <div class="text-center">
+        <div
+          class="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-400 mx-auto mb-4"
+        ></div>
+        <p class="text-white text-lg">Carregando...</p>
+      </div>
+    </div>
+
+    <!-- Notification for updates (can be adapted for web notifications) -->
+    <div
+      id="update-notification"
+      class="hidden absolute bottom-4 right-4 bg-indigo-600 text-white p-4 rounded-lg shadow-lg z-50 animate-bounce"
+    >
+      <p class="font-semibold">Nova versão disponível!</p>
+      <p class="text-sm">
+        A versão <span id="update-version"></span> está pronta.
+      </p>
+      <button
+        onclick="document.getElementById('update-notification').classList.add('hidden')"
+        class="absolute top-1 right-1 text-white text-lg"
+      >
+        &times;
+      </button>
+    </div>
+
+    <!-- === SIDEBAR (CONTROLS) === -->
+    <aside class="w-1/3 max-w-md bg-gray-900 p-6 overflow-y-auto">
+      <!-- User Info -->
+      <div
+        id="user-info"
+        class="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700"
+      >
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-gray-400">Carregando...</span>
+          <div class="flex items-center space-x-2">
+            <button
+              id="stats-btn"
+              class="text-purple-400 hover:text-purple-300 text-sm hidden transition-colors"
+              title="Dashboard de Performance"
+            >
+              <i class="fas fa-chart-line mr-1"></i>Stats
+            </button>
+            <button
+              id="logout-btn"
+              class="text-red-400 hover:text-red-300 text-sm hidden"
+            >
+              <i class="fas fa-sign-out-alt mr-1"></i>Sair
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center mb-6">
+        <i class="fas fa-robot text-3xl text-indigo-400 mr-4"></i>
+        <h1 class="text-2xl font-bold text-white">Gerador de Roteiros</h1>
+      </div>
+
+      <!-- Gemini API Keys Section -->
+      <div id="gemini-api-section" class="space-y-4 mb-6">
+        <div
+          class="collapsible-header flex justify-between items-center border-b border-gray-700 pb-2"
+        >
+          <h2 class="text-lg font-semibold text-indigo-300 flex items-center">
+            <i class="fas fa-chevron-down collapsible-icon mr-2 text-sm"></i>
+            API Keys (Gemini)
+          </h2>
+          <div class="flex items-center space-x-2">
+            <select
+              id="gemini-model-select"
+              class="bg-gray-800 border border-gray-600 text-gray-300 text-xs rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            >
+              <option value="gemini-2.5-pro-preview-06-05">2.5-Pro</option>
+              <option value="gemini-2.5-flash">2.5-Flash</option>
+            </select>
+            <button
+              id="add-gemini-key-btn"
+              title="Adicionar outra chave Gemini"
+              class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1 px-3 rounded-md transition-colors"
+            >
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="gemini-keys-container"
+          class="collapsible-content space-y-3 mt-3"
+        ></div>
+      </div>
+
+      <!-- TTS API Keys Section -->
+      <div id="tts-api-section" class="space-y-4 mb-6">
+        <div
+          class="collapsible-header flex justify-between items-center border-b border-gray-700 pb-2"
+        >
+          <h2 class="text-lg font-semibold text-indigo-300 flex items-center">
+            <i class="fas fa-chevron-down collapsible-icon mr-2 text-sm"></i>
+            API Keys (Text-to-Speech)
+          </h2>
+          <button
+            id="add-tts-key-btn"
+            title="Adicionar outra chave TTS"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1 px-3 rounded-md transition-colors"
+          >
+            <i class="fas fa-plus"></i>
+          </button>
+        </div>
+        <div
+          id="tts-keys-container"
+          class="collapsible-content space-y-3 mt-3"
+        ></div>
+      </div>
+
+      <!-- Generation Mode -->
+      <div class="space-y-4 mb-6">
+        <h2
+          class="text-lg font-semibold text-indigo-300 border-b border-gray-700 pb-2"
+        >
+          1. Modalidade de Geração
+        </h2>
+        <div id="generation-mode-switch" class="flex space-x-2">
+          <!-- <input type="radio" id="mode-classic" name="generation-mode" value="classic" class="mode-radio">
+                <label for="mode-classic" class="mode-label">Clássico</label> -->
+          <input
+            type="radio"
+            id="mode-premise"
+            name="generation-mode"
+            value="pair"
+            class="mode-radio"
+            checked
+          />
+          <label for="mode-premise" class="mode-label">Premissa</label>
+        </div>
+      </div>
+
+      <!-- Agent Selection -->
+      <div class="space-y-4 mb-6">
+        <h2
+          class="text-lg font-semibold text-indigo-300 border-b border-gray-700 pb-2"
+        >
+          2. Agente
+        </h2>
+        <div>
+          <label
+            for="agent-select"
+            class="block text-sm font-medium text-gray-400 mb-1"
+          >
+            Escolha o Agente<span
+              class="custom-agents-counter text-xs text-blue-400"
+            ></span>
+          </label>
+          <div class="flex space-x-2">
+            <select
+              id="agent-select"
+              class="w-full bg-gray-800 border border-gray-600 rounded-md p-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            ></select>
+          </div>
+        </div>
+        <div class="flex space-x-2 mt-4">
+          <button
+            id="new-agent-btn"
+            title="Criar novo agente"
+            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
+          >
+            <i class="fas fa-plus mr-2"></i>Criar Agente
+          </button>
+          <button
+            id="edit-agent-btn"
+            title="Editar agente selecionado"
+            class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
+            disabled
+          >
+            <i class="fas fa-edit mr-2"></i>Editar Agente
+          </button>
+        </div>
+      </div>
+
+      <!-- Titles/Links Input -->
+      <div class="space-y-4 mb-6">
+        <h2
+          class="text-lg font-semibold text-indigo-300 border-b border-gray-700 pb-2"
+        >
+          3. Títulos ou Links
+        </h2>
+        <div id="titles-list" class="space-y-3"></div>
+        <div class="flex items-center space-x-2">
+          <input
+            type="text"
+            id="new-title-input"
+            class="w-full bg-gray-800 border border-gray-600 rounded-md p-2 text-white focus:ring-2 focus:ring-indigo-500"
+            placeholder="Digite um título"
+          />
+          <button
+            id="add-title-btn"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 rounded-md transition-colors"
+          >
+            <i class="fas fa-plus"></i> Add
+          </button>
+        </div>
+        <div class="text-center text-gray-500 text-sm my-2">OU</div>
+        <div>
+          <label
+            for="file-upload"
+            class="w-full text-center cursor-pointer bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-2 px-4 rounded-md block"
+          >
+            <i class="fas fa-file-upload mr-2"></i> Subir arquivo .txt
+          </label>
+          <input type="file" id="file-upload" accept=".txt" class="hidden" />
+        </div>
+      </div>
+
+
+      <!-- Action Buttons -->
+      <div class="mt-8 space-y-2">
+        <button
+          id="generate-btn"
+          class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-md text-lg transition-transform transform hover:scale-105"
+        >
+          <i class="fas fa-cogs mr-2"></i> Gerar Roteiros
+        </button>
+        <button
+          id="stop-btn"
+          class="hidden w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-md text-lg"
+        >
+          <i class="fas fa-stop-circle mr-2"></i> Parar Geração
+        </button>
+      </div>
+    </aside>
+
+    <!-- === MAIN CONTENT (RESULTS) === -->
+    <main class="flex-1 p-6 flex flex-col bg-gray-800">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold text-white">
+          Resultados da Geração
+          <span
+            id="scripts-counter"
+            class="hidden text-sm font-normal text-gray-400 ml-2 relative"
+          >
+            <i
+              class="fas fa-info-circle text-xs ml-1 cursor-help tooltip-trigger"
+              data-tooltip="Sucessos / Total processados"
+            ></i>
+            <div
+              class="tooltip absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded shadow-lg opacity-0 pointer-events-none transition-opacity duration-200 whitespace-nowrap z-50"
+            >
+              Sucessos / Total processados
+            </div>
+          </span>
+        </h2>
+        <div class="flex gap-2">
+          <button
+            id="user-files-btn"
+            class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md"
+          >
+            <i class="fas fa-folder-open mr-2"></i> Meus Arquivos
+          </button>
+          <button
+            id="download-all-btn"
+            class="hidden bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md"
+          >
+            <i class="fas fa-file-archive mr-2"></i> Baixar Todos como .zip
+          </button>
+        </div>
+      </div>
+      <div
+        id="main-status-bar"
+        class="hidden p-3 mb-4 text-center text-white rounded-md transition-colors duration-300"
+      ></div>
+      <div
+        id="results-area"
+        class="flex-1 bg-gray-900 rounded-lg p-4 overflow-y-auto border border-gray-700"
+      >
+        <div
+          id="placeholder"
+          class="h-full flex flex-col justify-center items-center text-gray-500"
+        >
+          <i class="fas fa-file-alt text-6xl mb-4"></i>
+          <p class="text-lg">Seus roteiros aparecerão aqui...</p>
+          <p class="text-sm">
+            Configure as opções à esquerda e clique em "Gerar Roteiros".
+          </p>
+        </div>
+      </div>
+    </main>
+
+    <!-- AI Progress Floating Indicator (minimized state) -->
+    <div
+      id="ai-floating-indicator"
+      class="fixed bottom-4 right-4 bg-purple-600 text-white p-4 rounded-lg shadow-xl cursor-pointer transition-all duration-300 transform hover:scale-105 hidden z-40 animate-pulse"
+    >
+      <div class="flex items-center space-x-3">
+        <div class="relative">
+          <i class="fas fa-robot text-xl animate-pulse"></i>
+          <div class="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-ping"></div>
+        </div>
+        <div>
+          <div class="text-sm font-semibold">Criando Agente IA</div>
+          <div class="text-xs opacity-90" id="ai-floating-progress">Processando...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- === MODALS === -->
+    <!-- User Files Modal -->
+    <div
+      id="user-files-modal"
+      class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50"
+    >
+      <div
+        class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-3xl space-y-4 border border-gray-600 max-h-screen overflow-y-auto"
+      >
+        <div class="flex justify-between items-center">
+          <h2 class="text-2xl font-bold text-white">
+            <i class="fas fa-folder-open mr-2"></i> Meus Arquivos (24h)
+          </h2>
+          <button
+            id="close-user-files-modal"
+            class="text-gray-400 hover:text-white text-xl"
+          >
+            &times;
+          </button>
+        </div>
+        <div id="user-files-status" class="text-sm text-gray-300"></div>
+        <div id="user-files-list" class="space-y-2"></div>
+      </div>
+    </div>
+    <!-- Agent Creation/Editing Modal -->
+    <div
+      id="agent-modal"
+      class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50"
+    >
+      <div
+        class="bg-gray-800 rounded-lg shadow-xl p-8 w-full max-w-3xl space-y-4 border border-gray-600 max-h-screen overflow-y-auto"
+      >
+        <h2 class="text-2xl font-bold text-white">Criar/Editar Agente</h2>
+        <input type="hidden" id="editing-agent-key" />
+        <div>
+          <label
+            for="agent-name"
+            class="block text-sm font-medium text-gray-400 mb-1"
+            >Nome do Agente</label
+          >
+          <input
+            type="text"
+            id="agent-name"
+            class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white"
+            placeholder="Ex: Criança Prodígio"
+          />
+        </div>
+        <div>
+          <label
+            for="agent-type"
+            class="block text-sm font-medium text-gray-400 mb-1"
+            >Tipo de Agente</label
+          >
+          <select
+            id="agent-type"
+            class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white"
+          >
+            <!-- <option value="classic">Clássico (Individual)</option> -->
+            <option value="pair">Par: Premissa + Roteiro</option>
+          </select>
+        </div>
+
+        <!-- Classic Agent Prompt -->
+        <div id="single-prompt-container">
+          <label
+            for="agent-prompt"
+            class="block text-sm font-medium text-gray-400 mb-1"
+            >Prompt do Agente Clássico</label
+          >
+          <textarea
+            id="agent-prompt"
+            rows="15"
+            class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white font-mono text-sm"
+            placeholder="Cole o prompt completo aqui..."
+          ></textarea>
+        </div>
+
+        <!-- Premise/Pair Agent Prompts -->
+        <div id="pair-prompt-container" class="hidden space-y-4">
+          <div>
+            <label
+              for="primary-language-input"
+              class="block text-sm font-medium text-gray-400 mb-1"
+              >1. Idioma Principal da Premissa</label
+            >
+            <div
+              id="primary-language-tag-container"
+              class="flex flex-wrap gap-2 mb-2"
+            ></div>
+            <div class="flex items-center space-x-2">
+              <div class="relative w-full">
+                <input
+                  type="text"
+                  id="primary-language-input"
+                  class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Digite um idioma (ex: portu)"
+                  autocomplete="off"
+                />
+                <div
+                  id="primary-language-suggestions"
+                  class="autocomplete-suggestions hidden"
+                ></div>
+              </div>
+              <button
+                type="button"
+                id="add-primary-language-btn"
+                class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 rounded-md transition-colors flex-shrink-0"
+              >
+                <i class="fas fa-plus"></i> Add
+              </button>
+            </div>
+          </div>
+          <div>
+            <label
+              for="premise-prompt-input"
+              class="block text-sm font-medium text-gray-400 mb-1"
+              >2. Prompt da Premissa Principal</label
+            >
+            <textarea
+              id="premise-prompt-input"
+              rows="8"
+              class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white font-mono text-sm"
+            ></textarea>
+          </div>
+          <div>
+            <label
+              for="script-prompt-input"
+              class="block text-sm font-medium text-gray-400 mb-1"
+              >3. Prompt do Roteiro (Regras Globais)</label
+            >
+            <textarea
+              id="script-prompt-input"
+              rows="8"
+              class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white font-mono text-sm"
+              placeholder="Cole aqui seu prompt mestre com todas as regras de estilo, tom, etc."
+            ></textarea>
+          </div>
+          <div>
+            <label
+              for="script-structure-input"
+              class="block text-sm font-medium text-gray-400 mb-1"
+              >4. Estrutura de Blocos da História</label
+            >
+            <textarea
+              id="script-structure-input"
+              rows="10"
+              class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white font-mono text-sm"
+              placeholder="# Ato 1: Nome do Bloco&#10;Instruções..."
+            ></textarea>
+          </div>
+          <div>
+            <label
+              for="adaptation-prompt-input"
+              class="block text-sm font-medium text-gray-400 mb-1"
+              >5. Prompt do Agente de Adaptação Cultural</label
+            >
+            <textarea
+              id="adaptation-prompt-input"
+              rows="8"
+              class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white font-mono text-sm"
+              placeholder="Instruções para adaptar a PREMISSA para outra língua/cultura..."
+            ></textarea>
+          </div>
+          <div class="border-t border-gray-700 pt-4">
+            <h3 class="text-lg font-semibold text-indigo-300 mb-2">
+              6. Idiomas Adicionais para Adaptação
+            </h3>
+            <div
+              id="additional-languages-tags"
+              class="flex flex-wrap gap-2 mb-3"
+            ></div>
+            <div class="flex items-center space-x-2">
+              <div class="relative w-full">
+                <input
+                  type="text"
+                  id="new-language-input"
+                  class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Digite um idioma (ex: eng)"
+                  autocomplete="off"
+                />
+                <div
+                  id="additional-language-suggestions"
+                  class="autocomplete-suggestions hidden"
+                ></div>
+              </div>
+              <button
+                type="button"
+                id="add-language-btn"
+                class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 rounded-md transition-colors flex-shrink-0"
+              >
+                <i class="fas fa-plus"></i> Add
+              </button>
+            </div>
+          </div>
+          <div class="border-t border-gray-700 pt-4">
+            <h3 class="text-lg font-semibold text-indigo-300 mb-3">
+              7. Narração (TTS)
+            </h3>
+            <div class="flex items-center mb-4">
+              <input
+                id="tts-enabled-checkbox"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <label
+                for="tts-enabled-checkbox"
+                class="ml-3 block text-sm font-medium text-gray-300"
+                >Habilitar Narração de Áudio</label
+              >
+            </div>
+            <div id="tts-config-container" class="hidden space-y-3">
+              <p class="text-sm text-gray-400">
+                Selecione uma voz para cada idioma. As vozes aparecerão aqui
+                após adicionar os idiomas acima.
+              </p>
+              <div id="tts-voices-container" class="space-y-3"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Action Buttons -->
+        <div
+          class="flex justify-between items-center pt-4 border-t border-gray-600 mt-4"
+        >
+          <button
+            id="delete-agent-btn"
+            class="bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-md hidden"
+          >
+            <i class="fas fa-trash"></i> Deletar
+          </button>
+          <div class="space-x-4">
+            <button
+              id="cancel-agent-btn"
+              class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md"
+            >
+              Cancelar
+            </button>
+            <button
+              id="save-agent-btn"
+              class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md"
+            >
+              Salvar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent Method Selection Modal -->
+    <div
+      id="agent-method-modal"
+      class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50"
+    >
+      <div
+        class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md space-y-4 border border-gray-600"
+      >
+        <h2 class="text-xl font-bold text-white mb-4">Como deseja criar o agente?</h2>
+        <div class="space-y-3">
+          <button
+            id="create-manual-btn"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-md transition-colors flex items-center justify-center space-x-2"
+          >
+            <i class="fas fa-edit"></i>
+            <span>Criar Manualmente</span>
+          </button>
+          <button
+            id="create-ai-btn"
+            class="w-full bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-md transition-colors flex items-center justify-center space-x-2"
+          >
+            <i class="fas fa-robot"></i>
+            <span>Criar com IA</span>
+          </button>
+        </div>
+        <div class="mt-4 text-right">
+          <button id="cancel-method-btn" class="text-gray-400 hover:text-gray-300 transition-colors">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Agent Creation Modal -->
+    <div
+      id="ai-agent-modal"
+      class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50"
+    >
+      <div
+        class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-4xl space-y-4 border border-gray-600 max-h-[90vh] overflow-y-auto"
+      >
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-bold text-white">Criar Agente com IA</h2>
+          <button
+            id="minimize-ai-modal-btn"
+            class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded-md text-sm transition-colors"
+            title="Minimizar"
+          >
+            -
+          </button>
+        </div>
+        
+        <!-- Step 1: Input Scripts -->
+        <div id="ai-input-step" class="space-y-4">
+          <div>
+            <label for="ai-agent-name" class="block text-sm font-medium text-gray-400 mb-1">
+              Nome do Agente:
+            </label>
+            <input
+              type="text"
+              id="ai-agent-name"
+              class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              placeholder="Ex: Analista de Suspense, Contador de Histórias..."
+              maxlength="50"
+            />
+            <div class="text-xs text-gray-500 mt-1">
+              Este nome será usado para identificar o agente criado
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-400 mb-2">
+              Selecione os arquivos de roteiros (.txt ou .md):
+            </label>
+            <div class="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center">
+              <input
+                type="file"
+                id="ai-scripts-files"
+                multiple
+                accept=".txt,.md"
+                class="hidden"
+              />
+              <label
+                for="ai-scripts-files"
+                class="cursor-pointer flex flex-col items-center space-y-2"
+              >
+                <i class="fas fa-upload text-3xl text-gray-400"></i>
+                <span class="text-gray-300">Clique para selecionar arquivos</span>
+                <span class="text-xs text-gray-500">Ou arraste e solte aqui</span>
+              </label>
+            </div>
+            <div class="text-xs text-gray-500 mt-2">
+              Aceita arquivos .txt e .md • Cada arquivo = 1 roteiro • Máximo 10 arquivos • 5MB total
+            </div>
+            
+            <!-- Lista de arquivos selecionados -->
+            <div id="ai-files-list" class="mt-4 space-y-2 hidden">
+              <h4 class="text-sm font-medium text-gray-400">Arquivos selecionados:</h4>
+              <div id="ai-files-container" class="space-y-1"></div>
+              <div class="text-xs text-gray-500">
+                <span id="ai-files-count">0 arquivos</span> • 
+                <span id="ai-files-size">0 KB</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="flex justify-between">
+            <button
+              id="cancel-ai-btn"
+              class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              id="start-ai-analysis-btn"
+              class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled
+            >
+              <i class="fas fa-magic mr-2"></i>
+              Iniciar Análise
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Processing -->
+        <div id="ai-processing-step" class="space-y-6 hidden">
+          
+          <!-- Ícone central do robô -->
+          <div class="flex justify-center mb-8">
+            <div class="relative">
+              <i class="fas fa-robot text-6xl text-purple-400 animate-pulse"></i>
+              <div class="absolute -top-1 -right-1 w-4 h-4 bg-purple-500 rounded-full animate-ping"></div>
+            </div>
+          </div>
+          
+          <!-- Status de conexão -->
+          <div class="text-center mb-8">
+            <p class="text-sm text-gray-400 mb-4" id="ai-connection-status">Iniciando análise de roteiros...</p>
+          </div>
+          
+          <!-- Campos de resultado dos 4 passos -->
+          <div class="space-y-4">
+            <div class="bg-gray-700 border border-gray-600 rounded-lg p-4">
+              <div class="flex items-center space-x-3">
+                <i class="fas fa-search text-purple-400"></i>
+                <span class="text-white font-medium">Análise de Roteiros</span>
+                <div class="flex-1 text-right">
+                  <span id="step1-status" class="text-gray-400 text-sm">Aguardando...</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="bg-gray-700 border border-gray-600 rounded-lg p-4">
+              <div class="flex items-center space-x-3">
+                <i class="fas fa-lightbulb text-purple-400"></i>
+                <span class="text-white font-medium">Template de Premissa</span>
+                <div class="flex-1 text-right">
+                  <span id="step2-status" class="text-gray-400 text-sm">Aguardando...</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="bg-gray-700 border border-gray-600 rounded-lg p-4">
+              <div class="flex items-center space-x-3">
+                <i class="fas fa-file-alt text-purple-400"></i>
+                <span class="text-white font-medium">Template de Roteiro</span>
+                <div class="flex-1 text-right">
+                  <span id="step3-status" class="text-gray-400 text-sm">Aguardando...</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="bg-gray-700 border border-gray-600 rounded-lg p-4">
+              <div class="flex items-center space-x-3">
+                <i class="fas fa-layer-group text-purple-400"></i>
+                <span class="text-white font-medium">Estrutura de Blocos</span>
+                <div class="flex-1 text-right">
+                  <span id="step4-status" class="text-gray-400 text-sm">Aguardando...</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Preview -->
+        <div id="ai-preview-step" class="space-y-4 hidden">
+          <h3 class="text-lg font-semibold text-white">Preview do Agente Gerado</h3>
+          <div id="ai-preview-content" class="space-y-4">
+            <!-- Será preenchido dinamicamente -->
+          </div>
+          <div class="flex justify-between">
+            <button
+              id="restart-ai-btn"
+              class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md transition-colors"
+            >
+              <i class="fas fa-redo mr-2"></i>
+              Refazer
+            </button>
+            <div class="space-x-2">
+              <button
+                id="edit-ai-agent-btn"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-colors"
+              >
+                <i class="fas fa-edit mr-2"></i>
+                Editar
+              </button>
+              <button
+                id="save-ai-agent-btn"
+                class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md transition-colors"
+              >
+                <i class="fas fa-save mr-2"></i>
+                Salvar Agente
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cancel Confirmation Modal -->
+    <div
+      id="cancel-modal"
+      class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50"
+    >
+      <div
+        class="bg-gray-800 rounded-lg shadow-xl p-8 w-full max-w-md space-y-6 border border-gray-600"
+      >
+        <h2 class="text-2xl font-bold text-white text-center">Parar Geração</h2>
+        <p class="text-center text-gray-300">
+          Tem certeza de que deseja cancelar a operação em andamento? Todo o
+          progresso será perdido.
+        </p>
+        <div class="flex justify-center items-center space-x-4 pt-4">
+          <button
+            id="reject-cancel-btn"
+            class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-md"
+          >
+            Não
+          </button>
+          <button
+            id="confirm-cancel-btn"
+            class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-md"
+          >
+            Sim, Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats Dashboard Modal -->
+    <div
+      id="stats-modal"
+      class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50"
+    >
+      <div
+        class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg shadow-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto border border-indigo-500/30"
+      >
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-6">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-lg flex items-center justify-center">
+              <i class="fas fa-chart-line text-white text-lg"></i>
+            </div>
+            <div>
+              <h2 class="text-2xl font-bold text-white">Dashboard de Performance</h2>
+              <p class="text-sm text-gray-400">Suas estatísticas de produtividade</p>
+            </div>
+          </div>
+          <button
+            id="close-stats-modal"
+            class="text-gray-400 hover:text-white text-xl transition-colors"
+          >
+            &times;
+          </button>
+        </div>
+
+        <!-- Loading State -->
+        <div id="stats-loading" class="text-center py-12">
+          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-400 mx-auto mb-4"></div>
+          <p class="text-gray-400">Carregando suas estatísticas...</p>
+        </div>
+
+        <!-- Stats Content -->
+        <div id="stats-content" class="hidden">
+          <!-- Level & Streak Banner -->
+          <div class="bg-gradient-to-r from-indigo-600/20 to-indigo-500/20 border border-indigo-500/30 rounded-lg p-4 mb-6">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-4">
+                <div class="w-16 h-16 bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full flex items-center justify-center">
+                  <i class="fas fa-crown text-white text-xl"></i>
+                </div>
+                <div>
+                  <h3 class="text-xl font-bold text-white" id="user-level">Carregando...</h3>
+                  <div class="w-32 bg-gray-700 rounded-full h-2 mt-1">
+                    <div class="bg-gradient-to-r from-indigo-500 to-indigo-600 h-2 rounded-full transition-all duration-500" id="level-progress" style="width: 0%"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="flex items-center space-x-2 mb-1">
+                  <i class="fas fa-fire text-orange-400"></i>
+                  <span class="text-2xl font-bold text-white" id="streak-count">0</span>
+                  <span class="text-sm text-gray-400">dias</span>
+                </div>
+                <p class="text-xs text-gray-500">Streak consecutivo</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Main Stats Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <!-- Scripts Today -->
+            <div class="bg-gray-800/50 border border-gray-600 rounded-lg p-4">
+              <div class="flex items-center justify-between mb-2">
+                <i class="fas fa-file-alt text-green-400 text-lg"></i>
+                <span class="text-xs text-gray-400">HOJE</span>
+              </div>
+              <div class="text-2xl font-bold text-white countup" data-target="0" id="scripts-today">0</div>
+              <p class="text-sm text-gray-400">Roteiros</p>
+            </div>
+
+            <!-- TTS Today -->
+            <div class="bg-gray-800/50 border border-gray-600 rounded-lg p-4">
+              <div class="flex items-center justify-between mb-2">
+                <i class="fas fa-volume-up text-blue-400 text-lg"></i>
+                <span class="text-xs text-gray-400">HOJE</span>
+              </div>
+              <div class="text-2xl font-bold text-white countup" data-target="0" id="tts-today">0</div>
+              <p class="text-sm text-gray-400">Narrações</p>
+            </div>
+
+            <!-- Total Audio -->
+            <div class="bg-gray-800/50 border border-gray-600 rounded-lg p-4">
+              <div class="flex items-center justify-between mb-2">
+                <i class="fas fa-clock text-purple-400 text-lg"></i>
+                <span class="text-xs text-gray-400">TOTAL</span>
+              </div>
+              <div class="text-2xl font-bold text-white" id="total-audio">0m</div>
+              <p class="text-sm text-gray-400">Áudio criado</p>
+            </div>
+
+            <!-- Days Active -->
+            <div class="bg-gray-800/50 border border-gray-600 rounded-lg p-4">
+              <div class="flex items-center justify-between mb-2">
+                <i class="fas fa-calendar-alt text-orange-400 text-lg"></i>
+                <span class="text-xs text-gray-400">TEMPO</span>
+              </div>
+              <div class="text-2xl font-bold text-white countup" data-target="0" id="days-active">0</div>
+              <p class="text-sm text-gray-400">Dias ativos</p>
+            </div>
+          </div>
+
+          <!-- Period Stats -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <!-- Scripts Stats -->
+            <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+              <h4 class="text-lg font-semibold text-white mb-4 flex items-center">
+                <i class="fas fa-file-alt text-green-400 mr-2"></i>
+                Roteiros Gerados
+              </h4>
+              <div class="space-y-3">
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-400">Esta semana</span>
+                  <span class="text-xl font-bold text-white countup" data-target="0" id="scripts-week">0</span>
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-400">Este mês</span>
+                  <span class="text-xl font-bold text-white countup" data-target="0" id="scripts-month">0</span>
+                </div>
+                <div class="flex justify-between items-center border-t border-gray-600 pt-3">
+                  <span class="text-gray-400">Total geral</span>
+                  <span class="text-xl font-bold text-green-400 countup" data-target="0" id="scripts-total">0</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- TTS Stats -->
+            <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+              <h4 class="text-lg font-semibold text-white mb-4 flex items-center">
+                <i class="fas fa-volume-up text-blue-400 mr-2"></i>
+                Narrações TTS
+              </h4>
+              <div class="space-y-3">
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-400">Esta semana</span>
+                  <span class="text-xl font-bold text-white countup" data-target="0" id="tts-week">0</span>
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-400">Este mês</span>
+                  <span class="text-xl font-bold text-white countup" data-target="0" id="tts-month">0</span>
+                </div>
+                <div class="flex justify-between items-center border-t border-gray-600 pt-3">
+                  <span class="text-gray-400">Total geral</span>
+                  <span class="text-xl font-bold text-blue-400 countup" data-target="0" id="tts-total">0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Share Section -->
+          <div class="bg-gradient-to-r from-indigo-600/20 to-indigo-500/20 border border-indigo-500/30 rounded-lg p-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h4 class="text-lg font-semibold text-white mb-1">Compartilhe suas conquistas!</h4>
+                <p class="text-sm text-gray-400">Mostre sua produtividade para o mundo</p>
+              </div>
+              <button
+                id="share-stats-btn"
+                class="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 flex items-center space-x-2"
+              >
+                <i class="fas fa-share-alt"></i>
+                <span>Compartilhar Stats</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="stats-error" class="hidden text-center py-12">
+          <i class="fas fa-exclamation-triangle text-yellow-400 text-4xl mb-4"></i>
+          <p class="text-gray-400 mb-4">Erro ao carregar estatísticas</p>
+          <button
+            id="retry-stats-btn"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            Tentar Novamente
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FingerprintJS para identificação de dispositivos -->
+    <script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
+
+    <!-- Firebase App (core) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <!-- Firebase Auth -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <!-- Firebase Firestore -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <!-- Firebase config e helpers -->
+    <script src="firebase.js"></script>
+    <!-- Gerenciador de fingerprint -->
+    <script src="fingerprintManager.js"></script>
+    <!-- Gerenciador de dispositivos -->
+    <script src="deviceManager.js"></script>
+    <!-- Stats Dashboard Manager -->
+    <script src="statsManager.js"></script>
+    <!-- Detector de IP do cliente -->
+
+    <!-- Main application script -->
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
